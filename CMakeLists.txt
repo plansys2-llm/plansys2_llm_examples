@@ -67,7 +67,6 @@ foreach(bt_plugin ${plugin_libs})
     ${geometry_msgs_TARGETS}
     $<$<BOOL:${easynav_interfaces_FOUND}>:${easynav_interfaces_TARGETS}>
     ${nav_msgs_TARGETS}
-    plansys2_bt_actions::plansys2_bt_actions
     PRIVATE
     ${tf2_geometry_msgs_TARGETS}
     ${std_msgs_TARGETS}
@@ -75,6 +74,11 @@ foreach(bt_plugin ${plugin_libs})
     rclcpp_lifecycle::rclcpp_lifecycle
     rclcpp::rclcpp
     rclcpp_action::rclcpp_action
+  )
+
+  ament_target_dependencies(${bt_plugin}
+    PUBLIC
+    plansys2_bt_actions
   )
 
   target_compile_definitions(${bt_plugin} PRIVATE BT_PLUGIN_EXPORT)
@@ -86,13 +90,11 @@ target_include_directories(reception_controller_node PRIVATE
   "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>"
 )
 
+if(plansys2_msgs_VERSION VERSION_GREATER_EQUAL "3.0.0")
+  target_compile_definitions(reception_controller_node PRIVATE PLANSYS2_HAS_RESULT_ENUM)
+endif()
+
 target_link_libraries(reception_controller_node
-  PRIVATE
-  plansys2_domain_expert::plansys2_domain_expert
-  plansys2_executor::plansys2_executor
-  plansys2_planner::plansys2_planner
-  plansys2_problem_expert::plansys2_problem_expert
-  plansys2_pddl_parser::plansys2_pddl_parser
   plansys2_solver::plansys2_solver
   ${plansys2_msgs_TARGETS}
   nlohmann_json::nlohmann_json
@@ -101,6 +103,14 @@ target_link_libraries(reception_controller_node
   rclcpp_lifecycle::rclcpp_lifecycle
   ${std_msgs_TARGETS}
   ${tf2_TARGETS}
+)
+
+ament_target_dependencies(reception_controller_node
+  plansys2_domain_expert
+  plansys2_executor
+  plansys2_planner
+  plansys2_problem_expert
+  plansys2_pddl_parser
 )
 
 add_executable(perception_sim_node src/perception_sim_node.cpp)

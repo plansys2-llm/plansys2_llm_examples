@@ -172,8 +172,12 @@ public:
           if (!executor_client_->execute_and_check_plan()) {
             auto result = executor_client_->getResult();
 
+#ifdef PLANSYS2_HAS_RESULT_ENUM
             if (result.value().result ==
                 plansys2_msgs::action::ExecutePlan::Result::SUCCESS)
+#else
+            if (result.value().success)
+#endif
             {
               RCLCPP_INFO(get_logger(), "Plan successfully finished");
               state_ = StateType::FINISH;
