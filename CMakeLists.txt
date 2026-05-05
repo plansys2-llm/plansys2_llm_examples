@@ -76,10 +76,17 @@ foreach(bt_plugin ${plugin_libs})
     rclcpp_action::rclcpp_action
   )
 
-  ament_target_dependencies(${bt_plugin}
-    PUBLIC
-    plansys2_bt_actions
-  )
+  if(TARGET plansys2_bt_actions::plansys2_bt_actions)
+    target_link_libraries(${bt_plugin}
+      PUBLIC
+      plansys2_bt_actions::plansys2_bt_actions
+    )
+  else()
+    ament_target_dependencies(${bt_plugin}
+      PUBLIC
+      plansys2_bt_actions
+    )
+  endif()
 
   target_compile_definitions(${bt_plugin} PRIVATE BT_PLUGIN_EXPORT)
 endforeach()
@@ -105,13 +112,23 @@ target_link_libraries(reception_controller_node
   ${tf2_TARGETS}
 )
 
-ament_target_dependencies(reception_controller_node
-  plansys2_domain_expert
-  plansys2_executor
-  plansys2_planner
-  plansys2_problem_expert
-  plansys2_pddl_parser
-)
+if(TARGET plansys2_domain_expert::plansys2_domain_expert)
+  target_link_libraries(reception_controller_node
+    plansys2_domain_expert::plansys2_domain_expert
+    plansys2_executor::plansys2_executor
+    plansys2_planner::plansys2_planner
+    plansys2_problem_expert::plansys2_problem_expert
+    plansys2_pddl_parser::plansys2_pddl_parser
+  )
+else()
+  ament_target_dependencies(reception_controller_node
+    plansys2_domain_expert
+    plansys2_executor
+    plansys2_planner
+    plansys2_problem_expert
+    plansys2_pddl_parser
+  )
+endif()
 
 add_executable(perception_sim_node src/perception_sim_node.cpp)
 target_link_libraries(perception_sim_node
