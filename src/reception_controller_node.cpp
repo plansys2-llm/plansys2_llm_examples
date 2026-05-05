@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <deque>
 #include <memory>
 #include <random>
 #include <string>
@@ -56,10 +57,14 @@ public:
     solver_client_ = std::make_shared<plansys2::SolverClient>();
 
     // Backup perception log used in solver prompt when /actions_hub dedup drops events.
+    // Capped to bound LLM prompt size — the LLM only needs recent context, not the full plan history.
     perception_sub_ = create_subscription<std_msgs::msg::String>(
       "/perception_events", 10,
       [this](const std_msgs::msg::String::SharedPtr msg) {
         perception_log_.push_back(msg->data);
+        if (perception_log_.size() > MAX_PERCEPTION_LOG) {
+          perception_log_.pop_front();
+        }
         RCLCPP_INFO(get_logger(), "[PERCEPTION] Logged: %s", msg->data.c_str());
       });
 
@@ -198,6 +203,13 @@ public:
                 "STRICT RULES:\n"
                 "- Identify which book was not found at its expected shelf\n"
                 "- Check the perception log for sightings of that book elsewhere\n"
+                "- The \"location\" field of a perception event is the AUTHORITATIVE "
+                "location of the observed object. If \"location\" is null, you do NOT "
+                "know where that object is — do not invent one.\n"
+                "- Do NOT infer a book's location from the robot's current robot_at "
+                "position. The robot is just the observer; it is not where the book is.\n"
+                "- Do NOT match book colors against shelf names. \"shelf_red\" is NOT "
+                "\"where red things go\" — it is just a label.\n"
                 "- You may ONLY modify object_at predicates for the missing book\n"
                 "- Do NOT modify robot_at, doing_nthg, gripper_free, robot_carrying, "
                 "book_deposited, goals, or predicates for any other object\n"
@@ -262,6 +274,8 @@ public:
 
 
 private:
+  static constexpr size_t MAX_PERCEPTION_LOG = 8;
+
   std::shared_ptr<plansys2::DomainExpertClient> domain_expert_;
   std::shared_ptr<plansys2::PlannerClient> planner_client_;
   std::shared_ptr<plansys2::ProblemExpertClient> problem_expert_;
@@ -269,7 +283,7 @@ private:
   std::shared_ptr<plansys2::SolverClient> solver_client_;
 
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr perception_sub_;
-  std::vector<std::string> perception_log_;
+  std::deque<std::string> perception_log_;
 
   std::string displaced_book_;
 
