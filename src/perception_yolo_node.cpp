@@ -133,6 +133,7 @@ private:
       }
 
       std::string color = classify_color(bgr, det.bbox);
+      if (color.empty()) {continue;}
 
       const std::string key = det.class_name + ":" + color;
       auto it = last_emit_.find(key);
