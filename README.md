@@ -11,7 +11,7 @@ Part of the [`plansys2-llm`](https://github.com/plansys2-llm) project.
   - Behavior trees for the `move`, `pick_book`, `place_book` actions.
   - The main launch file `bookstore_kobuki_launch.py`.
   - Maps (`bookstore_map.{yaml,pgm}`) and the four colored book models (`colored_book_{red,green,blue,yellow}`).
-  - A perception node (`perception_yolo_node`) that wraps `yolo_ros` for the bookstore-specific class set.
+  - A perception node (`perception_yolo_node`) that wraps `yolo_ros`, configured to detect the colored book objects.
 
 ## Installation and usage
 
