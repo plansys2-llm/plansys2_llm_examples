@@ -20,6 +20,13 @@ find_package(geometry_msgs REQUIRED)
 find_package(easynav_interfaces QUIET)
 if(easynav_interfaces_FOUND)
   add_compile_definitions(HAS_EASYNAV)
+else()
+  message(WARNING
+    "easynav_interfaces NOT found - building Move BT plugin with fake_navigation "
+    "fallback. Real navigation will be unavailable at runtime. Make sure "
+    "easynav_interfaces is built before plan_bookstore (it is listed as a "
+    "dependency in package.xml, so 'colcon build' from the workspace root "
+    "should order it correctly).")
 endif()
 find_package(nav_msgs REQUIRED)
 find_package(plansys2_domain_expert REQUIRED)

@@ -14,7 +14,9 @@
   <depend>geometry_msgs</depend>
   <depend>tf2_geometry_msgs</depend>
   <depend>tf2</depend>
-  <!-- easynav_interfaces is optional; fake_navigation mode does not need it -->
+  <!-- easynav_interfaces is optional at compile time (fake_navigation mode falls
+       back without it), but listed here so colcon orders the build correctly. -->
+  <depend>easynav_interfaces</depend>
   <depend>nav_msgs</depend>
   <depend>plansys2_msgs</depend>
   <depend>plansys2_domain_expert</depend>
