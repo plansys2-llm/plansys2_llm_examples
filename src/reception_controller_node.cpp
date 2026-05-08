@@ -197,27 +197,51 @@ public:
 
               std::string perception_context = build_perception_context();
 
+              // Extract the failed action signature from the executor result
+              // and serialize it as a PDDL ground action, e.g.
+              // "(pick_book curiosity red_book shelf_red)".
+              std::string failed_action = "(unknown)";
+              for (const auto & info : result.value().action_execution_status) {
+                if (info.status == plansys2_msgs::msg::ActionExecutionInfo::FAILED) {
+                  failed_action = "(" + info.action;
+                  for (const auto & arg : info.arguments) {
+                    failed_action += " " + arg;
+                  }
+                  failed_action += ")";
+                  break;
+                }
+              }
+
               std::string prompt =
-                "EXECUTION FAILURE: A pick_book action failed because the book "
-                "was not found at its expected location.\n\n"
-                "The robot's perception system recorded these observations during "
-                "navigation:\n" + perception_context + "\n"
-                "Use the perception observations to determine where the missing "
-                "book actually is.\n\n"
-                "STRICT RULES:\n"
-                "- Identify which book was not found at its expected shelf\n"
-                "- Check the perception log for sightings of that book elsewhere\n"
-                "- The \"location\" field of a perception event is the AUTHORITATIVE "
-                "location of the observed object. If \"location\" is null, you do NOT "
-                "know where that object is — do not invent one.\n"
-                "- Do NOT infer a book's location from the robot's current robot_at "
-                "position. The robot is just the observer; it is not where the book is.\n"
-                "- Do NOT match book colors against shelf names. \"shelf_red\" is NOT "
-                "\"where red things go\" — it is just a label.\n"
-                "- You may ONLY modify object_at predicates for the missing book\n"
-                "- Do NOT modify robot_at, doing_nthg, gripper_free, robot_carrying, "
-                "book_deposited, goals, or predicates for any other object\n"
-                "- Reply ONLY with JSON, no extra text\n";
+                "The plan executor reported that the action " + failed_action +
+                " failed at runtime, meaning the agent's beliefs about the world "
+                "did not match reality.\n\n"
+                "Observations recorded by the robot's perception system during "
+                "the attempted plan:\n" + perception_context + "\n"
+                "Your task: identify which initial-state predicate(s) of the PDDL "
+                "problem are inconsistent with the observations, and propose the "
+                "minimum corrective edits.\n\n"
+                "Guidelines:\n"
+                "- Treat each observation's \"location\" field as ground truth "
+                "when present. If \"location\" is null, the location is unknown "
+                "- do not infer or invent one.\n"
+                "- Only edit predicates that describe where objects are "
+                "physically placed in the environment. Do not modify predicates "
+                "that describe the agent's internal state (e.g. carrying, "
+                "gripper, current waypoint), task progress, goals, or static "
+                "type predicates.\n"
+                "- Object identifiers and location identifiers are arbitrary "
+                "labels. Do not infer placement from name similarity (e.g. an "
+                "object named \"red_X\" is not necessarily located at "
+                "\"X_red\").\n"
+                "- The robot's position is not a reliable indicator of where "
+                "observed objects are; rely only on the \"location\" field of "
+                "each perception event.\n"
+                "- Apply the minimum number of edits required. Typically this "
+                "is one predicate removed and one predicate added.\n"
+                "- If observations confirm the existing beliefs, classify as "
+                "CORRECT with no edits.\n\n"
+                "Output: JSON only.\n";
 
               auto solver_result = solver_client_->getReplanificateSolve(
                 domain, problem, prompt, "");
