@@ -40,10 +40,11 @@ from launch.actions import (
     GroupAction,
     IncludeLaunchDescription,
     OpaqueFunction,
+    RegisterEventHandler,
     SetEnvironmentVariable,
-    TimerAction,
 )
 from launch.conditions import IfCondition
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import EqualsSubstitution, LaunchConfiguration
 from launch_ros.actions import Node
@@ -57,7 +58,11 @@ BOOK_SPECS = {
     'blue_book':   ('colored_book_blue',   -2.1531, -1.5000, 0.1633, -0.4021, 0.0898, 1.8254),
 }
 FLOOR_BOOK_Z = 0.10
-GAZEBO_SPAWN_DELAY_S = 4.0
+
+
+def _has_nvidia_gpu():
+    return (os.path.exists('/proc/driver/nvidia/version')
+            or os.path.exists('/usr/lib/x86_64-linux-gnu/libGLX_nvidia.so.0'))
 
 
 def spawn_books(context):
@@ -129,7 +134,10 @@ def generate_launch_description():
         description='Skip /perception_events, fake CheckBookPresent against displaced_book')
 
     # -- Environment -----------------------------------------------------------
-    model_path = os.path.join(aws_bookstore_dir, 'models')
+    model_path = os.pathsep.join([
+        os.path.join(aws_bookstore_dir, 'models'),
+        os.path.join(bookstore_dir, 'models'),
+    ])
     resource_path = model_path
     if 'GZ_SIM_MODEL_PATH' in os.environ:
         model_path += os.pathsep + os.environ['GZ_SIM_MODEL_PATH']
@@ -155,28 +163,30 @@ def generate_launch_description():
     )
 
     # -- 2. Kobuki -------------------------------------------------------------
-    spawn_robot = IncludeLaunchDescription(
+    # Robot description + bridges + image bridges (everything except the create).
+    # We declare the `create` Node ourselves below so we can chain the book
+    # spawn to its OnProcessExit (it only exits when the world is ready).
+    kobuki_description_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            join(kobuki_desc_dir, 'launch', 'spawn.launch.py')),
+            join(kobuki_desc_dir, 'launch', 'kobuki_description.launch.py')),
         launch_arguments={
-            'x': '0.0', 'y': '0.0', 'z': '0.0', 'Y': '0.0',
-            'lidar_range': '15.0',
+            'gazebo': 'true',
             'camera': 'true',
             'lidar': 'true',
             'use_sim_time': 'true',
         }.items(),
     )
 
-    # -- 3. Bridges ------------------------------------------------------------
-    ros_gz_bridge = Node(
-        package='ros_gz_bridge',
-        executable='parameter_bridge',
-        name='bridge_ros_gz',
-        parameters=[{
-            'config_file': join(bookstore_dir, 'config', 'bridge', 'kobuki_bridge.yaml'),
-            'use_sim_time': True,
-        }],
+    spawn_kobuki = Node(
+        package='ros_gz_sim',
+        executable='create',
+        name='spawn_kobuki',
         output='screen',
+        arguments=[
+            '-name', 'kobuki',
+            '-topic', 'robot_description',
+            '-x', '0.0', '-y', '0.0', '-z', '0.0', '-Y', '0.0',
+        ],
     )
 
     # -- 4. EasyNavigation -----------------------------------------------------
@@ -324,9 +334,11 @@ def generate_launch_description():
     # -- Build Launch Description ----------------------------------------------
     ld = LaunchDescription()
 
-    # GPU acceleration for Nvidia hybrid laptops
-    ld.add_action(SetEnvironmentVariable('__NV_PRIME_RENDER_OFFLOAD', '1'))
-    ld.add_action(SetEnvironmentVariable('__GLX_VENDOR_LIBRARY_NAME', 'nvidia'))
+    # GPU acceleration only on hosts that actually have NVIDIA. On Intel/AMD-only
+    # systems forcing __GLX_VENDOR_LIBRARY_NAME=nvidia breaks libGLX.
+    if _has_nvidia_gpu():
+        ld.add_action(SetEnvironmentVariable('__NV_PRIME_RENDER_OFFLOAD', '1'))
+        ld.add_action(SetEnvironmentVariable('__GLX_VENDOR_LIBRARY_NAME', 'nvidia'))
     ld.add_action(SetEnvironmentVariable('GZ_SIM_MODEL_PATH', model_path))
     ld.add_action(SetEnvironmentVariable('GZ_SIM_RESOURCE_PATH', resource_path))
 
@@ -339,8 +351,8 @@ def generate_launch_description():
 
     ld.add_action(gazebo_server)
     ld.add_action(gazebo_client)
-    ld.add_action(spawn_robot)
-    ld.add_action(ros_gz_bridge)
+    ld.add_action(kobuki_description_launch)
+    ld.add_action(spawn_kobuki)
 
     if easynav_available:
         ld.add_action(easynav_system)
@@ -355,9 +367,9 @@ def generate_launch_description():
     ld.add_action(place_book_node)
     ld.add_action(waypoint_tf)
 
-    ld.add_action(TimerAction(
-        period=GAZEBO_SPAWN_DELAY_S,
-        actions=[OpaqueFunction(function=spawn_books)],
-    ))
+    ld.add_action(RegisterEventHandler(OnProcessExit(
+        target_action=spawn_kobuki,
+        on_exit=[OpaqueFunction(function=spawn_books)],
+    )))
 
     return ld
