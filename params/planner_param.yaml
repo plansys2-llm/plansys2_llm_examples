@@ -21,7 +21,7 @@ solver:
       plugin: "plansys2/LLAMASolver"
       llm_debug: false
       pre_launch: true
-      model_yaml: "~/TFG/src/llm/llama_ros/llama_bringup/models/Phi-4.yaml"
+      model_yaml: "~/TFG/src/llm/llama_ros/llama_bringup/models/Qwen2.5-3B.yaml"
 solver_client:
   ros__parameters:
     solver_timeout: 240.0
