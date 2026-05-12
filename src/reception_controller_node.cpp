@@ -213,11 +213,6 @@ public:
               }
 
               std::string prompt =
-                "The plan executor reported that the action " + failed_action +
-                " failed at runtime, meaning the agent's beliefs about the world "
-                "did not match reality.\n\n"
-                "Observations recorded by the robot's perception system during "
-                "the attempted plan:\n" + perception_context + "\n"
                 "Your task: identify which initial-state predicate(s) of the PDDL "
                 "problem are inconsistent with the observations, and propose the "
                 "minimum corrective edits.\n\n"
@@ -241,7 +236,11 @@ public:
                 "is one predicate removed and one predicate added.\n"
                 "- If observations confirm the existing beliefs, classify as "
                 "CORRECT with no edits.\n\n"
-                "Output: JSON only.\n";
+                "The plan executor reported that the action " + failed_action +
+                " failed at runtime, meaning the agent's beliefs about the world "
+                "did not match reality.\n\n"
+                "Observations recorded by the robot's perception system during "
+                "the attempted plan:\n" + perception_context;
 
               auto solver_result = solver_client_->getReplanificateSolve(
                 domain, problem, prompt, "");
