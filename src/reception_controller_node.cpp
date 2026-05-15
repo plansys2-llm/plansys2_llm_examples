@@ -13,11 +13,15 @@
 // limitations under the License.
 
 #include <deque>
+#include <map>
 #include <memory>
 #include <random>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
+
+#include <nlohmann/json.hpp>
 
 #include "plansys2_pddl_parser/Utils.hpp"
 #include "plansys2_msgs/msg/action_execution_info.hpp"
@@ -215,15 +219,15 @@ public:
 
               std::string perception_context = build_perception_context();
 
-              // Extract the failed action signature from the executor result
-              // and serialize it as a PDDL ground action, e.g.
-              // "(pick_book curiosity red_book shelf_red)".
-              std::string failed_action = "(unknown)";
+              // The failed action as a readable call, e.g.
+              // "pick_book(curiosity, red_book, shelf_red)" - deliberately NOT
+              // a PDDL S-expression so the LLM does not copy it as a predicate.
+              std::string failed_action = "unknown";
               for (const auto & info : result.value().action_execution_status) {
                 if (info.status == plansys2_msgs::msg::ActionExecutionInfo::FAILED) {
-                  failed_action = "(" + info.action;
-                  for (const auto & arg : info.arguments) {
-                    failed_action += " " + arg;
+                  failed_action = info.action + "(";
+                  for (size_t i = 0; i < info.arguments.size(); ++i) {
+                    failed_action += (i ? ", " : "") + info.arguments[i];
                   }
                   failed_action += ")";
                   break;
@@ -231,34 +235,22 @@ public:
               }
 
               std::string prompt =
-                "Your task: identify which initial-state predicate(s) of the PDDL "
-                "problem are inconsistent with the observations, and propose the "
-                "minimum corrective edits.\n\n"
-                "Guidelines:\n"
-                "- Treat each observation's \"location\" field as ground truth "
-                "when present. If \"location\" is null, the location is unknown "
-                "- do not infer or invent one.\n"
-                "- Only edit predicates that describe where objects are "
-                "physically placed in the environment. Do not modify predicates "
-                "that describe the agent's internal state (e.g. carrying, "
-                "gripper, current waypoint), task progress, goals, or static "
-                "type predicates.\n"
-                "- Object identifiers and location identifiers are arbitrary "
-                "labels. Do not infer placement from name similarity (e.g. an "
-                "object named \"red_X\" is not necessarily located at "
-                "\"X_red\").\n"
-                "- The robot's position is not a reliable indicator of where "
-                "observed objects are; rely only on the \"location\" field of "
-                "each perception event.\n"
-                "- Apply the minimum number of edits required. Typically this "
-                "is one predicate removed and one predicate added.\n"
-                "- If observations confirm the existing beliefs, classify as "
-                "CORRECT with no edits.\n\n"
-                "The plan executor reported that the action " + failed_action +
-                " failed at runtime, meaning the agent's beliefs about the world "
-                "did not match reality.\n\n"
-                "Observations recorded by the robot's perception system during "
-                "the attempted plan:\n" + perception_context;
+                "A robot action just failed: the world is not as the PDDL "
+                "problem believes. The perception list below is GROUND TRUTH "
+                "about the objects the robot saw. Your only job: make the "
+                "problem's facts about those objects match perception. This is "
+                "belief correction, NOT planning - never reason about where an "
+                "object should go or what it should be, only what perception "
+                "says it IS now.\n"
+                "For each perceived object whose problem fact disagrees: "
+                "remove the stale fact and add the corrected one using the "
+                "matching Domain predicate. Such a fact contains only the "
+                "object and the perceived value (e.g. its location); it never "
+                "contains the robot or an action name.\n\n"
+                "The failed action was " + failed_action + ". The objects it "
+                "names are the ones whose beliefs are most likely wrong - "
+                "check those first against perception.\n\n"
+                "Perception:\n" + perception_context;
 
               auto solver_result = solver_client_->getReplanificateSolve(
                 domain, problem, prompt, "");
@@ -304,16 +296,40 @@ public:
     }
   }
 
+  // The LLM is unreliable at filtering the raw event stream (mostly
+  // location:null noise), so resolve "book color -> observed location" in
+  // code and feed only that. Highest-confidence non-null sighting per color.
   std::string build_perception_context()
   {
-    if (perception_log_.empty()) {
-      return "(no perception events recorded)";
+    std::map<std::string, std::pair<std::string, double>> best;
+    for (const auto & raw : perception_log_) {
+      try {
+        auto j = nlohmann::json::parse(raw);
+        if (j.value("observation", "") != "object_detected") {continue;}
+        if (j.value("object", "") != "book") {continue;}
+        if (j["color"].is_null() || j["location"].is_null()) {continue;}
+        const auto color = j["color"].get<std::string>();
+        const auto loc = j["location"].get<std::string>();
+        const double conf = j.value("confidence", 0.0);
+        auto it = best.find(color);
+        if (it == best.end() || conf > it->second.second) {
+          best[color] = {loc, conf};
+        }
+      } catch (const nlohmann::json::exception &) {
+        continue;
+      }
     }
-    std::string context;
-    for (size_t i = 0; i < perception_log_.size(); ++i) {
-      context += "[" + std::to_string(i + 1) + "] " + perception_log_[i] + "\n";
+
+    if (best.empty()) {
+      return "No observation reported any book at a known location.";
     }
-    return context;
+    std::string ctx =
+      "Each line is a book color and where it was observed "
+      "(the PDDL item is named <color>_book):\n";
+    for (const auto & [color, lc] : best) {
+      ctx += "- " + color + " book -> " + lc.first + "\n";
+    }
+    return ctx;
   }
 
 
