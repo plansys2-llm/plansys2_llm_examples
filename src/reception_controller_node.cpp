@@ -252,8 +252,6 @@ public:
                 "each perception event.\n"
                 "- Apply the minimum number of edits required. Typically this "
                 "is one predicate removed and one predicate added.\n"
-                "- Predicates use the Domain :predicates signatures and only "
-                "Problem objects; the failed action is not a predicate template\n"
                 "- If observations confirm the existing beliefs, classify as "
                 "CORRECT with no edits.\n\n"
                 "The plan executor reported that the action " + failed_action +
