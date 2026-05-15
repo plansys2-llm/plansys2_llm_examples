@@ -16,6 +16,7 @@ solver:
     solver_timeout: 240.0
     summarize_mode: "limited"
     prompt_debug: false
+    trunc_file: true  # truncate actions_hub log after each get_solve; false = accumulate (advanced)
     solver_plugins: ["LLAMA"]
     LLAMA:
       plugin: "plansys2/LLAMASolver"

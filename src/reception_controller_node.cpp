@@ -112,8 +112,14 @@ public:
 
   void choose_displaced_book()
   {
-    declare_parameter<std::string>("displaced_book", "");
-    displaced_book_ = get_parameter("displaced_book").as_string();
+    // Idempotent: declare the param only once, and keep the same displaced
+    // book across replays so every loop runs the identical scenario.
+    if (!has_parameter("displaced_book")) {
+      declare_parameter<std::string>("displaced_book", "");
+    }
+    if (displaced_book_.empty()) {
+      displaced_book_ = get_parameter("displaced_book").as_string();
+    }
 
     if (displaced_book_.empty()) {
       std::vector<std::string> books = {
@@ -179,8 +185,20 @@ public:
             if (result.value().success)
 #endif
             {
-              RCLCPP_INFO(get_logger(), "Plan successfully finished");
-              state_ = StateType::FINISH;
+              RCLCPP_WARN(get_logger(),
+                "[LOOP] Plan successfully finished (run %zu). Resetting and "
+                "replaying. Process stays alive so the solver / llama_node "
+                "(KV-cache) stays warm. Ctrl-C to stop.", ++run_);
+
+              // Reset PDDL belief to the initial scenario and replay. The
+              // physical world (Gazebo) is NOT reset, so run >=2 still hits
+              // the displaced-book mismatch -> the solver is queried again,
+              // now against a warm KV-cache.
+              problem_expert_->clearGoal();
+              problem_expert_->clearKnowledge();
+              perception_log_.clear();
+              init_knowledge();
+              state_ = StateType::PLANNING;
             } else {
               RCLCPP_ERROR(get_logger(),
                 "[EXECUTION_FAILURE] Plan failed. Querying solver with perception log...");
@@ -234,6 +252,8 @@ public:
                 "each perception event.\n"
                 "- Apply the minimum number of edits required. Typically this "
                 "is one predicate removed and one predicate added.\n"
+                "- Predicates use the Domain :predicates signatures and only "
+                "Problem objects; the failed action is not a predicate template\n"
                 "- If observations confirm the existing beliefs, classify as "
                 "CORRECT with no edits.\n\n"
                 "The plan executor reported that the action " + failed_action +
@@ -313,6 +333,7 @@ private:
   std::deque<std::string> perception_log_;
 
   std::string displaced_book_;
+  size_t run_ = 0;  // completed-plan counter for the KV-cache replay loop
 
   enum class StateType { STARTING, PLANNING, WORKING, FINISH };
   StateType state_;
