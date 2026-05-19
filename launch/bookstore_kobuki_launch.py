@@ -119,6 +119,10 @@ def generate_launch_description():
         'gui', default_value='true',
         description='Launch Gazebo GUI')
 
+    declare_rviz = DeclareLaunchArgument(
+        'rviz', default_value='true',
+        description='Launch RViz2 with the bookstore TFG config')
+
     declare_perception_mode = DeclareLaunchArgument(
         'perception_mode', default_value='sim',
         description='Perception backend: "sim" (scripted events) or "real" (YOLO+HSV)')
@@ -331,6 +335,18 @@ def generate_launch_description():
         output='screen',
     )
 
+    # -- 9. RViz2 --------------------------------------------------------------
+    rviz_node = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        namespace=namespace,
+        output='screen',
+        arguments=['-d', join(bookstore_dir, 'rviz', 'rviz_config.rviz')],
+        parameters=[{'use_sim_time': True}],
+        condition=IfCondition(LaunchConfiguration('rviz')),
+    )
+
     # -- Build Launch Description ----------------------------------------------
     ld = LaunchDescription()
 
@@ -345,6 +361,7 @@ def generate_launch_description():
     ld.add_action(declare_namespace)
     ld.add_action(declare_displaced_book)
     ld.add_action(declare_gui)
+    ld.add_action(declare_rviz)
     ld.add_action(declare_perception_mode)
     ld.add_action(declare_fake_navigation)
     ld.add_action(declare_fake_check)
@@ -366,6 +383,7 @@ def generate_launch_description():
     ld.add_action(pick_book_node)
     ld.add_action(place_book_node)
     ld.add_action(waypoint_tf)
+    ld.add_action(rviz_node)
 
     ld.add_action(RegisterEventHandler(OnProcessExit(
         target_action=spawn_kobuki,

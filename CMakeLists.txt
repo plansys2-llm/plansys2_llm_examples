@@ -164,7 +164,7 @@ install(DIRECTORY include/
   DESTINATION include/${PROJECT_NAME}
 )
 
-install(DIRECTORY launch pddl bt_xml config params maps models scripts
+install(DIRECTORY launch pddl bt_xml config params maps models scripts rviz
   DESTINATION share/${PROJECT_NAME}
 )
 
