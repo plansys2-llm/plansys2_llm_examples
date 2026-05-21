@@ -2,11 +2,11 @@
 
 planner_client:
   ros__parameters:
-    plan_propose_timeout: 15.0
+    plan_solver_timeout: 15.0
 planner:
   ros__parameters:
-    plan_propose_timeout: 15.0
-    plan_monitor_plugins: ["POPF"]
+    plan_solver_timeout: 15.0
+    plan_solver_plugins: ["POPF"]
     POPF:
       plugin: "plansys2/POPFPlanSolver"
     TFD:
