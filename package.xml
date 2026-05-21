@@ -27,7 +27,7 @@
   <depend>ament_index_cpp</depend>
   <depend>plansys2_bt_actions</depend>
 
-  <depend>plansys2_solver</depend>
+  <depend>plansys2_monitor</depend>
   <depend>lifecycle_msgs</depend>
   <depend>rclcpp_lifecycle</depend>
   <depend>std_msgs</depend>

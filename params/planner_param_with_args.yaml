@@ -2,32 +2,32 @@
 
 planner_client:
   ros__parameters:
-    plan_solver_timeout: 15.0
+    plan_propose_timeout: 15.0
 planner:
   ros__parameters:
-    plan_solver_timeout: 15.0
-    plan_solver_plugins: ["POPF"]
+    plan_propose_timeout: 15.0
+    plan_monitor_plugins: ["POPF"]
     POPF:
       plugin: "plansys2/POPFPlanSolver"
     TFD:
       plugin: "plansys2/TFDPlanSolver"
     TAMER:
       plugin: "plansys2/TAMERPlanSolver"
-solver:
+monitor:
   ros__parameters:
-    solver_timeout: 240.0
+    propose_timeout: 240.0
     summarize_mode: "limited"
     prompt_debug: false
-    solver_plugins: ["LLAMA"]
+    monitor_plugins: ["LLAMA"]
     LLAMA:
-      plugin: "plansys2/LLAMASolver"
+      plugin: "plansys2/LLAMAMonitor"
       llm_debug: true
       pre_launch: true
       model_yaml: "~/TFG/src/llm/llama_ros/llama_bringup/models/Qwen2.5-3B.yaml"
       launch_extra_args: ["--help"]
-solver_client:
+monitor_client:
   ros__parameters:
-    solver_timeout: 240.0
+    propose_timeout: 240.0
 executor:
   ros__parameters:
     bt_builder_plugin: "SimpleBTBuilder"

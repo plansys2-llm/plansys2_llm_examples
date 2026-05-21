@@ -15,7 +15,7 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(plansys2_msgs REQUIRED)
-find_package(plansys2_solver_msgs REQUIRED)
+find_package(plansys2_monitor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(easynav_interfaces QUIET)
 if(easynav_interfaces_FOUND)
@@ -35,7 +35,7 @@ find_package(plansys2_planner REQUIRED)
 find_package(plansys2_problem_expert REQUIRED)
 find_package(plansys2_pddl_parser REQUIRED)
 find_package(plansys2_bt_actions REQUIRED)
-find_package(plansys2_solver REQUIRED)
+find_package(plansys2_monitor REQUIRED)
 find_package(lifecycle_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(tf2 REQUIRED)
@@ -109,7 +109,7 @@ if(plansys2_msgs_VERSION VERSION_GREATER_EQUAL "3.0.0")
 endif()
 
 target_link_libraries(reception_controller_node
-  plansys2_solver::plansys2_solver
+  plansys2_monitor::plansys2_monitor
   ${plansys2_msgs_TARGETS}
   nlohmann_json::nlohmann_json
   rclcpp::rclcpp
@@ -207,7 +207,7 @@ ament_export_dependencies(
   plansys2_problem_expert
   plansys2_pddl_parser
   plansys2_bt_actions
-  plansys2_solver
+  plansys2_monitor
   lifecycle_msgs
   tf2
   tf2_geometry_msgs

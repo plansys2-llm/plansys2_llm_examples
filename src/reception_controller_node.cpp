@@ -32,8 +32,8 @@
 #include "plansys2_planner/PlannerClient.hpp"
 #include "plansys2_problem_expert/ProblemExpertClient.hpp"
 
-#include "plansys2_solver/SolverClient.hpp"
-#include "plansys2_solver/SolverNode.hpp"
+#include "plansys2_monitor/MonitorClient.hpp"
+#include "plansys2_monitor/MonitorNode.hpp"
 
 #include "std_msgs/msg/string.hpp"
 
@@ -54,13 +54,13 @@ public:
     planner_client_ = std::make_shared<plansys2::PlannerClient>();
     problem_expert_ = std::make_shared<plansys2::ProblemExpertClient>();
     executor_client_ = std::make_shared<plansys2::ExecutorClient>();
-    if (!has_parameter("solver_timeout")) {
-      declare_parameter<double>("solver_timeout", 150.0);
+    if (!has_parameter("propose_timeout")) {
+      declare_parameter<double>("propose_timeout", 150.0);
     }
-    set_parameter(rclcpp::Parameter("solver_timeout", 150.0));
-    solver_client_ = std::make_shared<plansys2::SolverClient>();
+    set_parameter(rclcpp::Parameter("propose_timeout", 150.0));
+    monitor_client_ = std::make_shared<plansys2::MonitorClient>();
 
-    // Backup perception log used in solver prompt when /actions_hub dedup drops events.
+    // Backup perception log used in monitor prompt when /actions_hub dedup drops events.
     // Capped to bound LLM prompt size — the LLM only needs recent context, not the full plan history.
     perception_sub_ = create_subscription<std_msgs::msg::String>(
       "/perception_events", 10,
@@ -191,12 +191,12 @@ public:
             {
               RCLCPP_WARN(get_logger(),
                 "[LOOP] Plan successfully finished (run %zu). Resetting and "
-                "replaying. Process stays alive so the solver / llama_node "
+                "replaying. Process stays alive so the monitor / llama_node "
                 "(KV-cache) stays warm. Ctrl-C to stop.", ++run_);
 
               // Reset PDDL belief to the initial scenario and replay. The
               // physical world (Gazebo) is NOT reset, so run >=2 still hits
-              // the displaced-book mismatch -> the solver is queried again,
+              // the displaced-book mismatch -> the monitor is queried again,
               // now against a warm KV-cache.
               problem_expert_->clearGoal();
               problem_expert_->clearKnowledge();
@@ -205,7 +205,7 @@ public:
               state_ = StateType::PLANNING;
             } else {
               RCLCPP_ERROR(get_logger(),
-                "[EXECUTION_FAILURE] Plan failed. Querying solver with perception log...");
+                "[EXECUTION_FAILURE] Plan failed. Querying monitor with perception log...");
 
               // pick_book's at-start effects remove doing_nthg+gripper_free; restore
               // on failure so replan preconditions hold.
@@ -251,14 +251,14 @@ public:
                 "check those first against perception.\n\n"
                 "Perception:\n" + perception_context;
 
-              auto solver_result = solver_client_->getReplanificateSolve(
+              auto monitor_result = monitor_client_->getProposal(
                 domain, problem, prompt, "");
 
-              if (!solver_result.has_value()) {
-                RCLCPP_ERROR(get_logger(), "[EXECUTION_FAILURE] Solver did not respond");
+              if (!monitor_result.has_value()) {
+                RCLCPP_ERROR(get_logger(), "[EXECUTION_FAILURE] Monitor did not respond");
                 state_ = StateType::FINISH;
-              } else if (solver_result->classification ==
-                plansys2_solver_msgs::msg::Solver::CORRECT)
+              } else if (monitor_result->classification ==
+                plansys2_monitor_msgs::msg::Proposal::CORRECT)
               {
                 RCLCPP_INFO(get_logger(),
                   "[EXECUTION_FAILURE] LLM: no state changes needed, replanning anyway");
@@ -266,12 +266,12 @@ public:
               } else {
                 RCLCPP_INFO(get_logger(),
                   "[EXECUTION_FAILURE] Applying LLM state corrections...");
-                for (const auto & pred_str : solver_result->remove_predicates) {
+                for (const auto & pred_str : monitor_result->remove_predicates) {
                   bool ok = problem_expert_->removePredicate(plansys2::Predicate(pred_str));
                   RCLCPP_INFO(get_logger(), "REMOVE %s: %s",
                     pred_str.c_str(), ok ? "ok" : "failed");
                 }
-                for (const auto & pred_str : solver_result->add_predicates) {
+                for (const auto & pred_str : monitor_result->add_predicates) {
                   bool ok = problem_expert_->addPredicate(plansys2::Predicate(pred_str));
                   RCLCPP_INFO(get_logger(), "ADD %s: %s",
                     pred_str.c_str(), ok ? "ok" : "failed");
@@ -340,7 +340,7 @@ private:
   std::shared_ptr<plansys2::PlannerClient> planner_client_;
   std::shared_ptr<plansys2::ProblemExpertClient> problem_expert_;
   std::shared_ptr<plansys2::ExecutorClient> executor_client_;
-  std::shared_ptr<plansys2::SolverClient> solver_client_;
+  std::shared_ptr<plansys2::MonitorClient> monitor_client_;
 
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr perception_sub_;
   std::deque<std::string> perception_log_;
@@ -358,25 +358,25 @@ int main(int argc, char ** argv)
 
   auto reception_node = std::make_shared<Reception>();
 
-  // Ensure the reception node has solver_timeout so SolverClient picks it up
-  if (!reception_node->has_parameter("solver_timeout")) {
-    reception_node->declare_parameter<double>("solver_timeout", 150.0);
+  // Ensure the reception node has propose_timeout so MonitorClient picks it up
+  if (!reception_node->has_parameter("propose_timeout")) {
+    reception_node->declare_parameter<double>("propose_timeout", 150.0);
   }
 
-  auto solver_node = std::make_shared<plansys2::SolverNode>();
+  auto monitor_node = std::make_shared<plansys2::MonitorNode>();
 
   try {
-    solver_node->configure();
+    monitor_node->configure();
   } catch (const std::exception & e) {
-    std::cerr << "Error creating SolverNode: " << e.what() << std::endl;
+    std::cerr << "Error creating MonitorNode: " << e.what() << std::endl;
     return 1;
   }
 
   if (!reception_node->init()) return 0;
 
-  rclcpp::executors::SingleThreadedExecutor solver_executor;
-  solver_executor.add_node(solver_node->get_node_base_interface());
-  std::thread solver_thread([&solver_executor]() { solver_executor.spin(); });
+  rclcpp::executors::SingleThreadedExecutor monitor_executor;
+  monitor_executor.add_node(monitor_node->get_node_base_interface());
+  std::thread monitor_thread([&monitor_executor]() { monitor_executor.spin(); });
 
   rclcpp::executors::MultiThreadedExecutor executor;
   executor.add_node(reception_node);
@@ -388,8 +388,8 @@ int main(int argc, char ** argv)
     rate.sleep();
   }
 
-  solver_executor.cancel();
-  solver_thread.join();
+  monitor_executor.cancel();
+  monitor_thread.join();
 
   rclcpp::shutdown();
   return 0;

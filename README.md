@@ -19,7 +19,7 @@ This is one of two repositories that compose the project. **The full installatio
 
 > https://github.com/plansys2-llm
 
-The companion repository (`plansys2_llm_solver`) provides the LLM replanner used by this demo. **`plan_bookstore` is the worked end-to-end reference for integrating that replanner** — see `plansys2_llm_solver/INTEGRATION.md` (notably `Reception::step()` in `src/reception_controller_node.cpp`).
+The companion repository (`plansys2_llm_monitor`) provides the LLM replanner used by this demo. **`plan_bookstore` is the worked end-to-end reference for integrating that replanner** — see `plansys2_llm_monitor/INTEGRATION.md` (notably `Reception::step()` in `src/reception_controller_node.cpp`).
 
 ## License
 

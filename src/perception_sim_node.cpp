@@ -83,7 +83,7 @@ private:
          {"detail", "Person detected walking through middle corridor."}};
     events_.push_back(e.dump());
 
-    // Displaced-book sighting — the signal the LLM solver uses to correct state.
+    // Displaced-book sighting — the signal the LLM monitor uses to correct state.
     e = {{"observation", "object_detected"},
          {"object", "book"},
          {"color", split_color(object_)},
