@@ -18,8 +18,9 @@ from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
@@ -27,6 +28,7 @@ def generate_launch_description():
     example_dir = get_package_share_directory('plan_bookstore')
     namespace = LaunchConfiguration('namespace')
     displaced_book = LaunchConfiguration('displaced_book')
+    perception_mode = LaunchConfiguration('perception_mode')
 
     declare_namespace_cmd = DeclareLaunchArgument(
         'namespace',
@@ -47,6 +49,12 @@ def generate_launch_description():
         'fake_check',
         default_value='true',
         description='Skip /perception_events, fake CheckBookPresent against displaced_book')
+
+    declare_perception_mode_cmd = DeclareLaunchArgument(
+        'perception_mode',
+        default_value='sim',
+        choices=['sim', 'external'],
+        description="Perception source: 'sim' starts the synthetic node; 'external' expects external ROS perception")
 
     plansys2_cmd = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(
@@ -73,7 +81,8 @@ def generate_launch_description():
             'detected_location': 'middle_path',
             'observed_x': -1.5,
             'observed_y': -3.0,
-        }])
+        }],
+        condition=IfCondition(PythonExpression(["'", perception_mode, "' == 'sim'"])))
 
     move_cmd = Node(
         package='plansys2_bt_actions',
@@ -132,6 +141,7 @@ def generate_launch_description():
     ld.add_action(declare_displaced_book_cmd)
     ld.add_action(declare_fake_navigation_cmd)
     ld.add_action(declare_fake_check_cmd)
+    ld.add_action(declare_perception_mode_cmd)
     ld.add_action(perception_sim_cmd)
     ld.add_action(move_cmd)
     ld.add_action(pick_book_cmd)

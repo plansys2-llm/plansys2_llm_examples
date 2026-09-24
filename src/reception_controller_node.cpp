@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <algorithm>
+#include <chrono>
 #include <deque>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <random>
@@ -72,6 +75,9 @@ public:
         RCLCPP_INFO(get_logger(), "[PERCEPTION] Logged: %s", msg->data.c_str());
       });
 
+    declare_parameter<bool>("precompute_enabled", false);
+    declare_parameter<double>("precompute_period", 5.0);
+    declare_parameter<bool>("wait_for_perception", false);
     init_knowledge();
 
     return true;
@@ -141,11 +147,59 @@ public:
       "but PDDL still believes it is)", displaced_book_.c_str());
   }
 
+  std::string build_monitor_observation(const std::string & failed_action)
+  {
+    return
+      "A robot action just failed: the world is not as the PDDL "
+      "problem believes. The perception list below is GROUND TRUTH "
+      "about the objects the robot saw. Your only job: make the "
+      "problem's facts about those objects match perception. This is "
+      "belief correction, NOT planning - never reason about where an "
+      "object should go or what it should be, only what perception "
+      "says it IS now.\n"
+      "For each perceived object whose problem fact disagrees: "
+      "remove the stale fact and add the corrected one using the "
+      "matching Domain predicate. Such a fact contains only the "
+      "object and the perceived value (e.g. its location).\n\n"
+      "The failed action was " + failed_action + ". The objects it "
+      "names are the ones whose beliefs are most likely wrong - "
+      "check those first against perception.\n\n"
+      "Perception:\n" + build_perception_context();
+  }
+
+  bool has_known_perception()
+  {
+    return build_perception_context() !=
+           "No observation reported any book at a known location.";
+  }
+
   void step()
   {
+    if (state_ == StateType::WORKING && get_parameter("precompute_enabled").as_bool()) {
+      const auto now = std::chrono::steady_clock::now();
+      const auto period = std::chrono::duration<double>(
+        std::max(0.5, get_parameter("precompute_period").as_double()));
+      if (now - last_precompute_ >= period) {
+        // Same builder and live expert state used for recovery. The unknown
+        // action is in the dynamic tail and will be replaced after a failure.
+        monitor_client_->precompute(domain_expert_->getDomain(),
+          problem_expert_->getProblem(), build_monitor_observation("unknown"));
+        last_precompute_ = now;
+      }
+    }
     switch (state_)
     {
       case StateType::STARTING:
+        if (get_parameter("wait_for_perception").as_bool() && !has_known_perception()) {
+          if (!waiting_for_perception_logged_) {
+            RCLCPP_INFO(get_logger(),
+              "[STARTUP] Waiting for a book observation with a known location");
+            waiting_for_perception_logged_ = true;
+          }
+          // Keep spinning so perception events accumulate. Precompute starts
+          // only in WORKING, so this gate does not start model work.
+          return;
+        }
         RCLCPP_INFO(get_logger(), "State: STARTING -> PLANNING");
         state_ = StateType::PLANNING;
         break;
@@ -217,8 +271,6 @@ public:
               auto domain = domain_expert_->getDomain();
               auto problem = problem_expert_->getProblem();
 
-              std::string perception_context = build_perception_context();
-
               // The failed action as a readable call, e.g.
               // "pick_book(curiosity, red_book, shelf_red)" - deliberately NOT
               // a PDDL S-expression so the LLM does not copy it as a predicate.
@@ -234,22 +286,7 @@ public:
                 }
               }
 
-              std::string prompt =
-                "A robot action just failed: the world is not as the PDDL "
-                "problem believes. The perception list below is GROUND TRUTH "
-                "about the objects the robot saw. Your only job: make the "
-                "problem's facts about those objects match perception. This is "
-                "belief correction, NOT planning - never reason about where an "
-                "object should go or what it should be, only what perception "
-                "says it IS now.\n"
-                "For each perceived object whose problem fact disagrees: "
-                "remove the stale fact and add the corrected one using the "
-                "matching Domain predicate. Such a fact contains only the "
-                "object and the perceived value (e.g. its location).\n\n"
-                "The failed action was " + failed_action + ". The objects it "
-                "names are the ones whose beliefs are most likely wrong - "
-                "check those first against perception.\n\n"
-                "Perception:\n" + perception_context;
+              std::string prompt = build_monitor_observation(failed_action);
 
               auto monitor_result = monitor_client_->getProposal(
                 domain, problem, prompt, "");
@@ -346,6 +383,8 @@ private:
   std::deque<std::string> perception_log_;
 
   std::string displaced_book_;
+  bool waiting_for_perception_logged_ = false;
+  std::chrono::steady_clock::time_point last_precompute_{};
   size_t run_ = 0;  // completed-plan counter for the KV-cache replay loop
 
   enum class StateType { STARTING, PLANNING, WORKING, FINISH };
@@ -369,10 +408,16 @@ int main(int argc, char ** argv)
     monitor_node->configure();
   } catch (const std::exception & e) {
     std::cerr << "Error creating MonitorNode: " << e.what() << std::endl;
+    monitor_node->on_shutdown(monitor_node->get_current_state());
+    rclcpp::shutdown();
     return 1;
   }
 
-  if (!reception_node->init()) return 0;
+  if (!reception_node->init()) {
+    monitor_node->on_shutdown(monitor_node->get_current_state());
+    rclcpp::shutdown();
+    return 0;
+  }
 
   rclcpp::executors::SingleThreadedExecutor monitor_executor;
   monitor_executor.add_node(monitor_node->get_node_base_interface());
@@ -382,15 +427,28 @@ int main(int argc, char ** argv)
   executor.add_node(reception_node);
 
   rclcpp::Rate rate(5);
+  int exit_code = 0;
   while (rclcpp::ok()) {
-    reception_node->step();
-    executor.spin_some();
-    rate.sleep();
+    try {
+      reception_node->step();
+      executor.spin_some();
+      rate.sleep();
+    } catch (const std::exception & e) {
+      // The default ROS signal handler may close the context during a PlanSys2
+      // expert call; its graph listener can then throw while the loop unwinds.
+      if (rclcpp::ok()) {
+        std::cerr << "Reception controller loop failed: " << e.what() << std::endl;
+        exit_code = 1;
+      }
+      break;
+    }
   }
 
   monitor_executor.cancel();
   monitor_thread.join();
 
+  // Stop plugin workers and release their shared node references before shutdown.
+  monitor_node->on_shutdown(monitor_node->get_current_state());
   rclcpp::shutdown();
-  return 0;
+  return exit_code;
 }
